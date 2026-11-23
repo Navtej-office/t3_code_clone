@@ -1,8 +1,12 @@
 import express from "express";
 import cors from "cors";
 
+
+import { CreateTaskSchema, type Task } from "./types";
+import { EventLog } from "./eventLog";
+import { createRunner } from "./runner";
 import { MemoryTaskStore } from "./store";
-import { CreateTaskSchema, type Task } from "./models/types";
+
 
 const PORT = Number(process.env.PORT ?? 3000);
 const WEB_ORIGINS = (
@@ -13,6 +17,8 @@ const WEB_ORIGINS = (
   .filter(Boolean);
 
 const app = express();
+const log = new EventLog();
+
 
 
 app.use(express.json());
@@ -26,6 +32,7 @@ app.use(
 );
 
 const store = new MemoryTaskStore();
+const runner = createRunner(store, log);
 
 app.post("/api/tasks", (req, res) => {
   const parsed = CreateTaskSchema.safeParse(req.body);
@@ -44,6 +51,7 @@ app.post("/api/tasks", (req, res) => {
   };
 
   store.create(task);
+  runner.runTask(task).catch(console.error);
   return res.status(201).json(task);
 });
 
@@ -57,6 +65,16 @@ app.get("/api/tasks/:id", (req, res) => {
     return res.status(401).json({ error: "task not found" });
   }
   return res.status(200).json(task);
+});
+
+app.get("/api/tasks/:id/log", (req, res) => {
+  const id = req.params.id;
+  if (!store.get(id)) {
+    return res.status(404).json({ error: "task not found" });
+  }
+  const raw = Number(req.query.after);
+  const after = Number.isInteger(raw) && raw >= 0 ? raw : 0;
+  return res.json(log.list(id, after));
 });
 
 app.listen(PORT, () => {
